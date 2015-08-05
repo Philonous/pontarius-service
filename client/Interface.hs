@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module DBusInterface where
+module Interface where
 
 import           DBus
 import           DBus.Scaffold

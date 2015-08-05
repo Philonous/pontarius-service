@@ -44,7 +44,7 @@ import           System.IO
 import           System.Log.Logger
 
 
-import           DBusInterface hiding (set)
+import           Interface hiding (set)
 import           Types
 
 peer :: Text
