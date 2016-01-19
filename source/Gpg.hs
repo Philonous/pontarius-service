@@ -24,11 +24,9 @@ import           System.Log.Logger
 
 --import           Network.Xmpp.E2E
 
-
-import           Basic
+import           Base
 import           Persist
 import           Types
-
 
 mkKeyRSA :: String -> String
 mkKeyRSA name = unlines $

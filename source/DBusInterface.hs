@@ -21,7 +21,7 @@ import           Data.Map (Map)
 import           Data.String
 import qualified Network.Xmpp as Xmpp
 
-import           Basic
+import           Base
 import           Gpg
 import           Persist
 import           Signals
@@ -92,7 +92,7 @@ removeChallengeMethod st =
 
 initialize :: PSState -> IO PontariusState
 initialize st = do
-    let stateRef = view psState st
+    let stateRef = view state st
     readTVarIO stateRef
 
 initializeMethod :: PSState -> Method

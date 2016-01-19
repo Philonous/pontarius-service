@@ -22,19 +22,18 @@ import           Data.Time.Clock
 import           Data.UUID (UUID)
 import qualified Network.Xmpp as Xmpp
 
-import           Basic
+import           Base
 import           Gpg
 import           Persist as DB
 import           Signals
 import           State
-import           Types
 import           Xmpp as Xmpp
 
 synchronousCreateGpgKey :: (MonadIO m, Functor m) =>
                            PSM (MethodHandlerT m) BS.ByteString
 synchronousCreateGpgKey = do
     liftIO $ logDebug "Creating new identity"
-    sem <- view psGpgCreateKeySempahore
+    sem <- view gpgCreateKeySempahore
     tid <- liftIO myThreadId
     liftIO (atomically $ tryPutTMVar sem tid) >>= \case
         False ->do
@@ -49,7 +48,7 @@ synchronousCreateGpgKey = do
             now <- liftIO $ getCurrentTime
             liftIO $ logDebug "Done creating new key"
             addIdentity "gpg" (toKeyID keyFpr) (Just now) Nothing
-            as <- view psAccountState
+            as <- view accountState
             liftIO (atomically (readTVar as)) >>= \case
                 AccountEnabled -> setState Authenticating
                 AccountDisabled -> setState Disabled
@@ -59,7 +58,7 @@ synchronousCreateGpgKey = do
 createGpgKey :: MonadIO m => EitherT (Maybe PontariusState) (PSM m) ()
 createGpgKey = do
     liftIO $ logDebug "Creating new key"
-    sem <- view psGpgCreateKeySempahore
+    sem <- view gpgCreateKeySempahore
     st <- ask
     void . liftIO . forkIO . runPSM st $ do
         tid <- liftIO myThreadId

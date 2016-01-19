@@ -8,6 +8,8 @@
 
 import           Control.Applicative
 import           Control.Concurrent.STM
+import qualified Control.Event.Handler as RB
+import qualified Reactive.Banana as RB
 import           Control.Monad.Logger hiding (logDebug)
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Resource
@@ -28,7 +30,7 @@ import           System.Log.Handler hiding (setLevel)
 import           System.Log.Handler.Simple
 import           System.Log.Logger
 
-import           Basic
+import           Base
 import           DBusInterface
 import           Persist
 import           State
@@ -53,6 +55,15 @@ globalLogger = do
     updateGlobalLogger rootLoggerName $ addHandler hnd . removeHandler
 
 
+makeCallbacks :: IO (FrpCallbacks RB.AddHandler, FrpCallbacks FrpHandler)
+makeCallbacks = do
+    (rosterUpdateAH, rosterUpdateCallback) <- RB.newAddHandler
+    let handlers = FrpCallbacks  {frpCallbacksRosterUpdate = rosterUpdateAH }
+        callbacks = FrpCallbacks
+                     {frpCallbacksRosterUpdate = FrpHandler rosterUpdateCallback
+                     }
+    return (handlers, callbacks)
+
 main :: IO ()
 main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     args <- getArgs
@@ -74,16 +85,18 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     sem <- newEmptyTMVarIO
     conRef <- newEmptyTMVarIO
     subReqsRef <- newTVarIO Set.empty
-    let psState = PSState { _psDB = pool
-                          , _psXmppCon = xmppConRef
-                          , _psProps = propertiesRef
-                          , _psState = pState
-                          , _psAccountState = accState
-                          , _psGpgCreateKeySempahore = sem
-                          , _psDBusConnection = conRef
-                          , _psSubscriptionRequests = subReqsRef
-                          , _psCallbacks = PSCallbacks
+    (addHandlers, handlers) <- makeCallbacks
+    let psState = PSState { _db = pool
+                          , _xmppCon = xmppConRef
+                          , _props = propertiesRef
+                          , _state = pState
+                          , _accountState = accState
+                          , _gpgCreateKeySempahore = sem
+                          , _dBusConnection = conRef
+                          , _subscriptionRequests = subReqsRef
+                          , _callbacks = PSCallbacks
                                             { _onStateChange = onXmppStateChange }
+                          , _frpCallbacks = handlers
                           }
         getStatus = readTVar pState
         getEnabled = (== AccountEnabled) <$> readTVar accState
@@ -153,5 +166,4 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     logDebug "updating state"
     runPSM psState updateState
     logDebug "done updating state"
-
     waitFor con

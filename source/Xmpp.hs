@@ -44,9 +44,10 @@ import qualified Network.Xmpp.E2E as E2E
 import qualified Network.Xmpp.IM as Xmpp
 import           Network.Xmpp.Lens hiding (view)
 import           Persist
+import           Reactive.Banana
 import           System.Random
 
-import           Basic
+import           Base
 import           Gpg
 import           Signals
 import           State
@@ -86,7 +87,7 @@ makeE2ECallbacks :: (MonadReader PSState m, MonadIO m) =>
                  -> m E2E.E2ECallbacks
 makeE2ECallbacks kid = do
     st <- ask
-    con <- liftIO . atomically . readTMVar =<< view psDBusConnection
+    con <- liftIO . atomically . readTMVar =<< view dBusConnection
     return E2E.E2EC { E2E.onStateChange =
                        \p os ns -> handleStateChange st con p os ns
                     , E2E.onSmpChallenge = \p ssid vinfo q -> do
@@ -126,7 +127,7 @@ handleStateChange st con j oldState newState =
 
 ourJid :: PSState -> IO (Maybe Xmpp.Jid)
 ourJid st = runMaybeT $ do
-    (xmppCon, _ctx) <- (liftIO . atomically . readTVar $ view psXmppCon st)
+    (xmppCon, _ctx) <- (liftIO . atomically . readTVar $ view xmppCon st)
                       >>= \case
          XmppConnected c ctx _ -> return (c, ctx)
          _ -> do
@@ -210,7 +211,7 @@ moveIdentity :: PSState
              -> Maybe UUID
              -> IO ()
 moveIdentity st kid mbNewContact = runPSM st $ do
-    con <- liftIO . atomically . readTMVar $ view psDBusConnection st
+    con <- liftIO . atomically . readTMVar $ view dBusConnection st
     mbContact <- fmap contactUniqueID <$> getIdentityContact kid
     unless (mbContact == mbNewContact) $ case mbNewContact of
         Just c -> do
@@ -233,6 +234,7 @@ tryConnect :: MonadIO m =>
            -> m (Xmpp.Session, E2E.E2EContext)
 tryConnect key st = runPSM st $ do
     mbCredentials <- getCredentials
+    oru <- getCallback rosterUpdate
     case mbCredentials of
         Just cred -> do
             let hostname = Text.unpack $ hostCredentialsHostname cred
@@ -261,6 +263,7 @@ tryConnect key st = runPSM st $ do
                                & osc .~ (\_ _ _ _ -> return [])
                                & Xmpp.pluginsL .~ [e2eplugin]
                                & Xmpp.onPresenceChangeL .~ Just opc
+                               & Xmpp.onRosterPushL .~ Just oru
                           )
             case mbSess of
                 Left e -> do
@@ -296,7 +299,7 @@ tryConnect key st = runPSM st $ do
 
 ake :: PSState -> Xmpp.Jid -> IO ()
 ake st them = liftM (maybe () id) . runMaybeT $ do
-    (xmppCon, ctx) <- (liftIO . atomically . readTVar $ view psXmppCon st)
+    (xmppCon, ctx) <- (liftIO . atomically . readTVar $ view xmppCon st)
                       >>= \case
          XmppConnected c ctx _ -> return (c, ctx)
          _ -> do
@@ -352,8 +355,8 @@ ake st them = liftM (maybe () id) . runMaybeT $ do
 -- function blocks until pre-conditions are met
 connector :: Integer -> PSState -> IO (Xmpp.Session, E2E.E2EContext,  [ThreadId])
 connector d st = do
-    let pst = st ^. psState
-        as = st ^. psAccountState
+    let pst = st ^. state
+        as = st ^. accountState
         -- The following operation will only finish when all the preconditions
         -- are met _simultaneously_
     con <- liftIO . atomically $ do
@@ -369,7 +372,7 @@ connector d st = do
         -- Check that the account is enabled before trying to connect
         case a of
            AccountDisabled -> retry
-           AccountEnabled -> readTMVar $ st ^. psDBusConnection
+           AccountEnabled -> readTMVar $ st ^. dBusConnection
     mbKey <- liftIO $ exportSigningGpgKey st
     case mbKey of
         Nothing -> (runPSM st $ setState IdentityNotFound) >> connector d st
@@ -441,7 +444,7 @@ handleSubscriptionRequest sess con st
 enableXmpp :: (MonadReader PSState m, MonadIO m, Functor m) => m ()
 enableXmpp = do
     st <- ask
-    xc <- view psXmppCon
+    xc <- view xmppCon
     c <- liftIO . atomically $ readTVar xc
     case c of
         XmppConnecting _ -> return ()
@@ -462,16 +465,16 @@ enableXmpp = do
             case run of
                  False -> return ()
                  True -> do
-                     runPSM st . (st ^. psCallbacks . onStateChange)
+                     runPSM st . (st ^. callbacks . onStateChange)
                          $ XmppConnecting tid
                      (sess, e2eCtx, threads) <- connector 0 st
                      let state2 = XmppConnected sess e2eCtx threads
-                     runPSM st . (st ^. psCallbacks . onStateChange) $ state2
+                     runPSM st . (st ^. callbacks . onStateChange) $ state2
                      atomically . writeTVar xc $ state2
 
 enableAccount :: (Functor m, MonadIO m) => PSM (MethodHandlerT m) ()
 enableAccount = do
-    as <- view psAccountState
+    as <- view accountState
     liftIO . atomically $ writeTVar as AccountEnabled
     enableXmpp
 
@@ -482,8 +485,8 @@ disconnect con = do
 
 disableAccount :: (MonadReader PSState m, MonadIO m) => m ()
 disableAccount = do
-    as <- view psAccountState
-    xmppRef <- view psXmppCon
+    as <- view accountState
+    xmppRef <- view xmppCon
     mbXmppSess  <- liftIO . atomically $ do
         writeTVar as AccountDisabled
         readTVar xmppRef
@@ -500,7 +503,7 @@ disableAccount = do
 getSession :: (Monad m, MonadIO m, MonadMethodError m) =>
               PSM m Xmpp.Session
 getSession = do
-    xc <- view psXmppCon
+    xc <- view xmppCon
     c <- liftIO $ readTVarIO xc
     case c of
         XmppConnected sess _ _ -> return sess
@@ -510,7 +513,7 @@ getSession = do
 
 checkSession :: (MonadIO m, MonadReader PSState m) => m (Maybe Xmpp.Session)
 checkSession = do
-    xc <- view psXmppCon
+    xc <- view xmppCon
     c <- liftIO $ readTVarIO xc
     case c of
      XmppConnected sess _ _ -> return $ Just sess
@@ -523,7 +526,7 @@ connected = do
 
 getE2EContext :: PSM (MethodHandlerT IO) E2E.E2EContext
 getE2EContext = do
-    xc <- view psXmppCon
+    xc <- view xmppCon
     c <- liftIO $ readTVarIO xc
     case c of
         XmppConnected _ ctx _ -> return ctx
@@ -533,7 +536,7 @@ getE2EContext = do
 
 getE2EContextSTM :: PSState -> STM E2E.E2EContext
 getE2EContextSTM st = do
-    c <- readTVar (view psXmppCon st)
+    c <- readTVar (view xmppCon st)
     case c of
         XmppConnected _ ctx _ -> return ctx
         _ -> retry
@@ -541,7 +544,7 @@ getE2EContextSTM st = do
 
 getSessionSTM :: PSState -> STM Xmpp.Session
 getSessionSTM st = do
-    c <- readTVar (st ^. psXmppCon)
+    c <- readTVar (st ^. xmppCon)
     case c of
         XmppConnected sess _ _ -> return sess
         _ -> retry
@@ -665,7 +668,7 @@ respondChallenge peer secret = do
 
 getSessions :: PSState -> IO (Map Xmpp.Jid E2E.SessionState)
 getSessions st = atomically $ do
-    c <- readTVar (view psXmppCon st)
+    c <- readTVar (view xmppCon st)
     case c of
         XmppConnected _ ctx _ -> E2E.getSessions ctx
         _ -> return Map.empty

@@ -72,6 +72,7 @@ executable pontarius-service
                , pontarius-xmpp
                , pontarius-xmpp-e2e
                , random >= 1.0.1
+               , reactive-banana
                , resourcet >= 1.1.2.2
                , singletons >= 1.0
                , stm

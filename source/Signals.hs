@@ -12,7 +12,7 @@ import           Data.UUID (UUID)
 import qualified Network.Xmpp as Xmpp
 import           Data.Text (Text)
 
-import           Basic
+import           Base
 import           Types
 
 type SigD a = SignalDescription (FlattenRepType (RepType a))

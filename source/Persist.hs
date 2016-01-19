@@ -112,17 +112,17 @@ addPubIdent keyID = do
 
 runDB :: MonadIO m => SqlPersistT (LoggingT (ResourceT IO)) b -> PSM m b
 runDB f = do
-    dbPool <- PSM $ view psDB
+    dbPool <- PSM $ view db
     PSM . liftIO . runResourceT . runStderrLoggingT . flip runSqlPool dbPool $ f
 
 setState :: (MonadReader PSState m, MonadIO m) => PontariusState -> m ()
 setState newState = do
-    st <- view psState
+    st <- view state
     liftIO . atomically $ writeTVar st newState
 
 getState :: (MonadReader PSState m, MonadIO m) => m PontariusState
 getState = do
-    st <- view psState
+    st <- view state
     liftIO . atomically $ readTVar st
 
 addChallenge :: (MonadIO m, MonadThrow m) =>

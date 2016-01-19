@@ -1,3 +1,4 @@
+{-# LANGUAGE FunctionalDependencies #-}
 {-# OPTIONS_GHC  -fno-warn-incomplete-patterns #-}
 
 {-# LANGUAGE DataKinds #-}
@@ -17,6 +18,7 @@ module Types
 
 import           Control.Concurrent
 import           Control.Concurrent.STM
+import qualified Control.Event.Handler as RB
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Catch
@@ -25,13 +27,13 @@ import           DBus
 import           DBus.Signal
 import           DBus.Types
 import           Data.Set (Set)
-import qualified Data.Set as Set
 import           Data.Text (Text)
 import           Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
 import qualified Network.Xmpp.E2E as Xmpp
+import qualified Network.Xmpp.IM as Xmpp
 
 import           PontariusService.Types
 
@@ -71,15 +73,23 @@ instance Show XmppState where
 data PSCallbacks = PSCallbacks { _onStateChange :: !(XmppState -> PSM IO ())
                                }
 
-data PSState = PSState { _psDB                    :: !ConnectionPool
-                       , _psXmppCon               :: !(TVar XmppState)
-                       , _psProps                 :: !(TMVar PSProperties)
-                       , _psState                 :: !(TVar PontariusState)
-                       , _psAccountState          :: !(TVar AccountState)
-                       , _psGpgCreateKeySempahore :: !(TMVar ThreadId)
-                       , _psDBusConnection        :: !(TMVar DBusConnection)
-                       , _psSubscriptionRequests  :: !(TVar (Set Xmpp.Jid))
-                       , _psCallbacks             :: !PSCallbacks
+type Callback a = a -> IO ()
+newtype FrpHandler a = FrpHandler (Callback a)
+
+data FrpCallbacks m = FrpCallbacks
+                      { frpCallbacksRosterUpdate :: m Xmpp.RosterUpdate
+                      }
+
+data PSState = PSState { _db                    :: !ConnectionPool
+                       , _xmppCon               :: !(TVar XmppState)
+                       , _props                 :: !(TMVar PSProperties)
+                       , _state                 :: !(TVar PontariusState)
+                       , _accountState          :: !(TVar AccountState)
+                       , _gpgCreateKeySempahore :: !(TMVar ThreadId)
+                       , _dBusConnection        :: !(TMVar DBusConnection)
+                       , _subscriptionRequests  :: !(TVar (Set Xmpp.Jid))
+                       , _callbacks             :: !PSCallbacks
+                       , _frpCallbacks          :: !(FrpCallbacks FrpHandler)
                        }
 
 newtype PSM m a = PSM {unPSM :: ReaderT PSState m a}
@@ -87,41 +97,7 @@ newtype PSM m a = PSM {unPSM :: ReaderT PSState m a}
                          , MonadThrow, MonadCatch
                          )
 
-io :: IO a -> IO a
-io = id
-
-methodHandler :: MethodHandlerT IO a -> MethodHandlerT IO a
-methodHandler = id
-
 deriving instance Monad m => MonadReader PSState (PSM m)
-
-
-makeLenses ''PSProperties
-makeLenses ''PSCallbacks
-makeLenses ''PSState
-
-addSubscriptionRequest :: MonadIO m => Xmpp.Jid -> PSM m ()
-addSubscriptionRequest fr = do
-    srs <- PSM $ view psSubscriptionRequests
-    liftIO . atomically $ modifyTVar srs $ Set.insert fr
-
-removeSubscriptionRequest :: MonadIO m => Xmpp.Jid -> PSM m ()
-removeSubscriptionRequest fr = do
-    srs <- PSM $ view psSubscriptionRequests
-    liftIO . atomically $ modifyTVar srs $ Set.delete fr
-
-getSubscriptionRequests :: MonadIO m => PSM m (Set Xmpp.Jid)
-getSubscriptionRequests = do
-    srs <- PSM $ view psSubscriptionRequests
-    liftIO . atomically $ readTVar srs
-
-runPSM :: PSState -> PSM m a -> m a
-runPSM st (PSM m) = runReaderT m st
-
-getDBusCon :: MonadIO m => PSM m (DBusConnection)
-getDBusCon = do
-    st <- PSM ask
-    liftIO . atomically $ readTMVar $ st ^. psDBusConnection
 
 instance Representable (Maybe UUID) where
   type RepType (Maybe UUID) = RepType Text
@@ -131,3 +107,10 @@ instance Representable (Maybe UUID) where
                Nothing -> Nothing
                Just "" -> Just Nothing
                Just txt -> Just <$> UUID.fromText txt
+
+makePrisms ''FrpHandler
+
+makeLensesWith camelCaseFields ''FrpCallbacks
+makeLensesWith camelCaseFields ''PSProperties
+makeLenses                     ''PSCallbacks
+makeLenses                     ''PSState
