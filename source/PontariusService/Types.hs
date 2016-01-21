@@ -33,7 +33,6 @@ import qualified Data.UUID as UUID
 import           Data.Word
 import qualified Network.Xmpp as Xmpp
 
-
 type SSID = ByteString
 
 data BatchLink = BatchLinkIgnore
@@ -186,3 +185,29 @@ data RemovePeerFailed =
 
 makeRepresentable ''RemovePeerFailed
 makeLensesWith camelCaseFields ''RemovePeerFailed
+
+data PeerLinkingStatus = PeerLinkingStatusNew
+                       | PeerLinkingStatusRemoved
+                       | PeerLinkingStatusIgnored
+                       | PeerLinkingStatusUnlinked
+                       | PeerLinkingStatusLinked !UUID
+                         deriving (Eq, Show, Typeable)
+
+makeRepresentable ''PeerLinkingStatus
+makePrisms ''PeerLinkingStatus
+
+data PeerLinkingState =
+    PeerLinkingState { peerLinkingStatePeer :: !Xmpp.Jid
+                     , peerLinkingStateStatus :: !PeerLinkingStatus
+                     } deriving (Eq, Show, Typeable)
+
+makeRepresentable ''PeerLinkingState
+makeLensesWith camelCaseFields ''PeerLinkingState
+
+-- data Contact = Contact { contactUUID :: !UUID
+--                        , contactName :: !Text
+--                        , contextPeers :: ![Xmpp.Jid]
+--                        }
+
+-- makeRepresentable ''Contact
+-- makeLensesWith camelCaseFields ''Contact

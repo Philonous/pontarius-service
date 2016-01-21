@@ -44,7 +44,7 @@
 	<arg name="peers" type="a{sa{ss}}" direction="out"/>
       </method>
       <method name="getContacts">
-	<arg name="contacts" type="a((ss)b)" direction="out"/>
+	<arg name="contacts" type="a{s(sas)}" direction="out"/>
       </method>
       <method name="getCredentials">
 	<arg name="username" type="s" direction="out"/>
@@ -57,7 +57,7 @@
 	<arg name="challenges" type="a(ssbsssb)" direction="out"/>
       </method>
       <method name="getSessionsByIdentity">
-	<arg name="jid" type="s" direction="in"/>
+	<arg name="identity" type="s" direction="in"/>
 	<arg name="sessions" type="a(ayssssuu)" direction="out"/>
       </method>
       <method name="getSessionsByJID">
@@ -82,6 +82,9 @@
       <method name="linkIdentity">
 	<arg name="identity" type="s" direction="in"/>
 	<arg name="contact" type="s" direction="in"/>
+      </method>
+      <method name="linkPeers">
+	<arg name="jids and " type="a(s(ys))" direction="in"/>
       </method>
       <method name="identityVerified">
 	<arg name="key_id" type="s" direction="in"/>
@@ -169,6 +172,16 @@
 	<arg name="identity" type="s"/>
 	<arg name="peer" type="s"/>
 	<arg name="status" type="y"/>
+      </signal>
+      <signal name="addPeersFailed">
+	<arg name="peers and reason" type="a(ss)"/>
+      </signal>
+      <signal name="removePeersFailed">
+	<arg name="peers and reasons" type="a(ss)"/>
+      </signal>
+      <signal name="removePeersFailed">
+	<arg name="jid" type="s"/>
+	<arg name="status&lt;" type="(yv)"/>
       </signal>
       <property name="Identity" type="s" access="read"/>
       <property name="Status" type="y" access="read"/>

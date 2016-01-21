@@ -336,16 +336,6 @@ unlinkJid :: MonadIO m => Xmpp.Jid -> ReaderT SqlBackend m ()
 unlinkJid jid = do
     deleteWhere [ContactPeerPeer ==. jid]
 
-batchLink :: [(Xmpp.Jid, BatchLink)] -> PSM IO ()
-batchLink ps = do
-    forM_ ps $ \(peer, action) ->
-        case action of
-          BatchLinkIgnore -> ignorePeer peer
-          BatchLinkExisting uuid -> addContactPeer uuid peer
-          BatchLinkNewContact name -> do
-              contact <- newContact name
-              addContactPeer contact peer
-
 getPeer :: MonadIO m => Xmpp.Jid -> PSM m (Maybe Peer)
 getPeer jid = do
     res <- runDB $ getBy (UniquePeer jid)

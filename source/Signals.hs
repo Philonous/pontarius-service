@@ -97,3 +97,8 @@ addPeersFailedSignal = pontariusSignal "addPeersFailed"
 removePeersFailedSignal :: SigD [RemovePeerFailed] -- Jid and Reason
 removePeersFailedSignal = pontariusSignal "removePeersFailed"
                           ("peers and reasons" :> Done)
+
+
+peerStatusChangedSignal :: SigD (Xmpp.Jid, PeerLinkingStatus)
+peerStatusChangedSignal = pontariusSignal "removePeersFailed"
+                          ("jid" :> "status<" :> Done)

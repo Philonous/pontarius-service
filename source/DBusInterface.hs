@@ -216,7 +216,7 @@ unlinkIdentityMethod st =
 
 getContactsMethod :: PSState -> Method
 getContactsMethod st =
-        DBus.Method (DBus.repMethod $ runPSM st getContactsM)
+        DBus.Method (DBus.repMethod $ runPSM st getAllContacts)
         "getContacts"
         Done
         ("contacts" :> Done)
@@ -286,7 +286,7 @@ unignorePeerMethod st =
 linkPeersContactsMethod :: PSState -> Method
 linkPeersContactsMethod st =
     DBus.Method
-    (DBus.repMethod $ runPSM st . batchLink)
+    (DBus.repMethod $ runPSM st . batchLink st)
     "linkPeers"
     ("jids and " :> Done)
     Done
@@ -343,6 +343,7 @@ xmppInterface st = Interface
                 , SSD unlinkedIdentityAvailabilitySignal
                 , SSD addPeersFailedSignal
                 , SSD removePeersFailedSignal
+                , SSD peerStatusChangedSignal
                 ]
                 [ SomeProperty $ identityProp st
                 ]

@@ -21,12 +21,14 @@ import qualified Data.Text as Text
 import           Data.Time.Clock
 import           Data.UUID (UUID)
 import qualified Network.Xmpp as Xmpp
+import           PontariusService.Types
 
 import           Base
 import           Gpg
 import           Persist as DB
 import           Signals
 import           State
+import           Types
 import           Xmpp as Xmpp
 
 synchronousCreateGpgKey :: (MonadIO m, Functor m) =>
@@ -158,12 +160,13 @@ addContactJidM st uuid jid = runPSM st . void $ addContactPeer uuid jid
 removeContactJidM :: PSState -> Xmpp.Jid -> IO ()
 removeContactJidM st = runPSM st . removeContactPeer
 
-getAllContacts :: MonadIO m => PSM m (Map.Map UUID (Text, Set.Set a))
+getAllContacts :: PSM IO (Map.Map UUID (Text, [Xmpp.Jid]))
 getAllContacts = do
     allContacts <-  getContacts
-    return $ Map.fromList [ (contactUniqueID c, (contactName c, Set.empty))
-                          | c <- allContacts
-                          ]
+    cs <- forM allContacts $ \c -> do
+        peers <- DB.getContactPeers (contactUniqueID c)
+        return (contactUniqueID c, (contactName c, peers))
+    return $ Map.fromList cs
 
 removeContactM :: UUID -> PSM IO ()
 removeContactM c = do
@@ -236,3 +239,30 @@ onXmppStateChange :: (MonadIO m, Ex.MonadCatch m, MonadMethodError m) =>
                   -> PSM m ()
 onXmppStateChange XmppConnected{} = handleRemoteRosterAvailable
 onXmppStateChange _ = return ()
+
+batchLink :: PSState -> [(Xmpp.Jid, BatchLink)] -> PSM IO ()
+batchLink st ps = do
+    let updateState = st ^.frpCallbacks . peerLinkStatus . _FrpHandler
+    forM_ ps $ \(peer, action) ->
+        case action of
+          BatchLinkIgnore -> do
+              ignorePeer peer
+              liftIO . updateState $ PeerLinkingState{ peerLinkingStateStatus
+                                                         = PeerLinkingStatusIgnored
+                                                     , peerLinkingStatePeer = peer
+                                                     }
+          BatchLinkExisting uuid -> do
+              addContactPeer uuid peer
+              liftIO . updateState $
+                  PeerLinkingState{ peerLinkingStateStatus
+                                      = PeerLinkingStatusLinked uuid
+                                  , peerLinkingStatePeer = peer
+                                  }
+          BatchLinkNewContact name -> do
+              contact <- newContact name
+              addContactPeer contact peer
+              liftIO . updateState $
+                  PeerLinkingState{ peerLinkingStateStatus
+                                      = PeerLinkingStatusLinked contact
+                                  , peerLinkingStatePeer = peer
+                                  }

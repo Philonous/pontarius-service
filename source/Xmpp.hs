@@ -263,7 +263,7 @@ tryConnect key st = runPSM st $ do
                                & osc .~ (\_ _ _ _ -> return [])
                                & Xmpp.pluginsL .~ [e2eplugin]
                                & Xmpp.onPresenceChangeL .~ Just opc
-                               & Xmpp.onRosterPushL .~ Just oru
+                               & Xmpp.onRosterPushL .~ Just (onRosterUpdate oru)
                           )
             case mbSess of
                 Left e -> do
@@ -295,6 +295,13 @@ tryConnect key st = runPSM st $ do
     osc = Xmpp.streamConfigurationL . Xmpp.tlsParamsL
             . clientHooksL . onServerCertificateL
     policy _peer = return $ Just True -- TODO: cross-check with DB
+    onRosterUpdate oru _ rur@Xmpp.RosterUpdateRemove{} = oru rur
+    onRosterUpdate oru roster rua@(Xmpp.RosterUpdateAdd item) = do
+        let jid = (Xmpp.riJid item)
+        case Map.lookup jid (Xmpp.items roster) of
+         Nothing -> oru rua
+         Just{} -> return ()
+
 
 
 ake :: PSState -> Xmpp.Jid -> IO ()

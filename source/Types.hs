@@ -78,6 +78,7 @@ newtype FrpHandler a = FrpHandler (Callback a)
 
 data FrpCallbacks m = FrpCallbacks
                       { frpCallbacksRosterUpdate :: m Xmpp.RosterUpdate
+                      , frpCallbacksPeerLinkStatus :: m PeerLinkingState
                       }
 
 data PSState = PSState { _db                    :: !ConnectionPool

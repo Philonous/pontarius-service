@@ -9,19 +9,24 @@
 import           Control.Applicative
 import           Control.Concurrent.STM
 import qualified Control.Event.Handler as RB
-import qualified Reactive.Banana as RB
+import           Control.Lens
 import           Control.Monad.Logger hiding (logDebug)
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Resource
 import           DBus
 import           DBus.Introspect (introspect)
 import           DBus.Property
+import           DBus.Reactive
+import qualified Data.List as List
 import           Data.Maybe (isJust)
 import           Data.Monoid
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Text.IO as Text
 import           Database.Persist.Sqlite
+import           Network.Xmpp.IM
+import qualified Reactive.Banana as RB
+import qualified Reactive.Banana.Frameworks as RB
 import           System.Environment
 import           System.Exit
 import           System.FilePath
@@ -33,6 +38,7 @@ import           System.Log.Logger
 import           Base
 import           DBusInterface
 import           Persist
+import           Signals
 import           State
 import           Transactions
 import           Types
@@ -55,14 +61,38 @@ globalLogger = do
     updateGlobalLogger rootLoggerName $ addHandler hnd . removeHandler
 
 
-makeCallbacks :: IO (FrpCallbacks RB.AddHandler, FrpCallbacks FrpHandler)
-makeCallbacks = do
-    (rosterUpdateAH, rosterUpdateCallback) <- RB.newAddHandler
+makeCallbacks :: Network -> IO (FrpCallbacks RB.Event, FrpCallbacks FrpHandler)
+makeCallbacks net = do
+    (rosterUpdateAH, rosterUpdateCallback) <- sync net $ RB.newEvent
     let handlers = FrpCallbacks  {frpCallbacksRosterUpdate = rosterUpdateAH }
         callbacks = FrpCallbacks
                      {frpCallbacksRosterUpdate = FrpHandler rosterUpdateCallback
                      }
     return (handlers, callbacks)
+
+handleEvents :: Network
+             -> PSState
+             -> FrpCallbacks RB.Event
+             -> DBusConnection
+             -> IO ()
+handleEvents net st events con =  sync net $ do
+    let rosterUpdatesE = events ^. rosterUpdate
+        peerLinkingE   = events ^. peerLinkStatus
+    let e = unions [ toPeerLinkState <$> rosterUpdatesE
+                   , peerLinkingE
+                   ]
+    eventSignal e peerStatusChangedSignal con
+    return ()
+  where
+    unions = List.foldl1' (RB.unionWith const)
+    toPeerLinkState (RosterUpdateAdd item) = -- TODO: check if peer already present
+        PeerLinkingState { peerLinkingStatePeer   = (riJid item)
+                         , peerLinkingStateStatus = PeerLinkingStatusNew
+                         }
+    toPeerLinkState (RosterUpdateRemove jid) =
+        PeerLinkingState { peerLinkingStatePeer   = jid
+                         , peerLinkingStateStatus = PeerLinkingStatusRemoved
+                         }
 
 main :: IO ()
 main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
@@ -85,7 +115,8 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     sem <- newEmptyTMVarIO
     conRef <- newEmptyTMVarIO
     subReqsRef <- newTVarIO Set.empty
-    (addHandlers, handlers) <- makeCallbacks
+    net <- newNet
+    (events, handlers) <- makeCallbacks net
     let psState = PSState { _db = pool
                           , _xmppCon = xmppConRef
                           , _props = propertiesRef
@@ -146,6 +177,7 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
      Nothing -> return ()
     logDebug "connecting to dbus"
     con <- makeServer DBus.Session ro
+    handleEvents net psState events con
     logDebug "setting dbus session"
     atomically $ putTMVar conRef con
     logDebug "requesting dbus name"
